@@ -1,3 +1,10 @@
+# কোডের শুরুতে multiprocessing সেট করা হয়েছে মেমোরি ও প্রসেস ম্যানেজমেন্টের জন্য
+import multiprocessing
+try:
+    multiprocessing.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass
+
 import os
 import io
 import random
@@ -12,20 +19,20 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageOps, ImageFilter
 # --- ১. Render পোর্ট ফিক্স (Flask Server) ---
 app = Flask(__name__)
 @app.route('/')
-def health_check(): return "Ultra Premium Photo Bot is Online!", 200
+def health_check(): 
+    return "Ultra Premium Photo Bot is Online!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# সার্ভারকে আলাদা থ্রেডে চালানো
+# ফ্ল্যাস্ক সার্ভারকে আলাদা থ্রেডে চালু করা
 threading.Thread(target=run_flask, daemon=True).start()
 
 # --- ২. কনফিগারেশন ও সিম্বল লাইব্রেরি ---
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv('BOT_TOKEN')
 
-# আনলিমিটেড প্রিমিয়াম সিম্বল লাইব্রেরি
 LOG_SYMBOLS = {
     "Technology 💻": ["💻", "🖥️", "⚙️", "🚀", "📱", "🌐", "🛡️", "💾", "📡", "🔋", "🔌", "🔧", "🧬", "🧪", "🛰️", "🤖"],
     "Media/Movie 🎬": ["🎬", "🎥", "🍿", "🎞️", "📽️", "🌟", "🎭", "📻", "📺", "📷", "📸", "🎵", "🎶", "🎤", "🎧"],
@@ -36,22 +43,18 @@ LOG_SYMBOLS = {
 
 # --- ৩. ইমেজ প্রসেসিং ফাংশনসমূহ ---
 
-# প্রিমিয়াম HDR অটো এডিট
 def premium_hdr_edit(img):
     img = img.convert("RGB")
     img = ImageOps.autocontrast(img, cutoff=1)
-    img = ImageEnhance.Color(img).enhance(1.4) # রঙ বুস্ট
-    img = ImageEnhance.Sharpness(img).enhance(2.0) # পরিষ্কার করা
-    img = ImageEnhance.Contrast(img).enhance(1.2) # কন্ট্রাস্ট
-    img = img.filter(ImageFilter.DETAIL) # ডিটেইল ফিল্টার
+    img = ImageEnhance.Color(img).enhance(1.4)
+    img = ImageEnhance.Sharpness(img).enhance(2.0)
+    img = ImageEnhance.Contrast(img).enhance(1.2)
+    img = img.filter(ImageFilter.DETAIL)
     return img
 
-# প্রিমিয়াম লোগো মেকার
 def generate_logo_image(text, category, color, style):
     img = Image.new('RGBA', (800, 800), color=(0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    
-    # স্টাইল অনুযায়ী শেপ ড্রয়িং
     if style == "Circle":
         draw.ellipse([50, 50, 750, 750], fill=color, outline="white", width=15)
     elif style == "Square":
@@ -59,10 +62,7 @@ def generate_logo_image(text, category, color, style):
     else: # Diamond
         draw.polygon([(400, 50), (750, 400), (400, 750), (50, 400)], fill=color, outline="white", width=15)
 
-    # র‍্যান্ডম সিম্বল সিলেকশন
     symbol = random.choice(LOG_SYMBOLS.get(category, ["✨"]))
-    
-    # সিম্বল ও টেক্সট বসানো
     draw.text((400, 320), symbol, fill="white", anchor="mm", font_size=250)
     draw.text((400, 580), text, fill="white", anchor="mm", font_size=80)
     
@@ -105,7 +105,6 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['action'] = 'edit'
     await update.message.reply_text("✨ প্রিমিয়াম এইচডিআর এডিটের জন্য ছবিটি পাঠান।")
 
-# লোগো ইন্টারফেস
 async def logo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("ব্যবহার: /logo BrandName")
@@ -151,7 +150,7 @@ async def color_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(chat_id=query.message.chat_id, text="✅ প্রিমিয়াম লোগো পাঠানো শেষ!")
 
-# --- ৫. মেইন ইমেজ প্রসেসিং হ্যান্ডলার ---
+# --- ৫. মেইন ইমেজ প্রসেসিং হ্যান্ডলার (Memory Optimized) ---
 async def image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = context.user_data.get('action')
     
@@ -159,27 +158,29 @@ async def image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await update.message.photo[-1].get_file()
         context.user_data['stored_bg'] = await file.download_as_bytearray()
         context.user_data['action'] = 'get_subject_image'
-        await update.message.reply_text("✅ ব্যাকগ্রাউন্ড পাওয়া গেছে! এবার **আপনার নিজের ছবি** পাঠান।")
+        await update.message.reply_text("✅ ব্যাকগ্রাউন্ড পাওয়া গেছে! এবার আপনার **মূল ছবিটি** পাঠান।")
         return
 
     if not action: return
 
     wait_msg = await update.message.reply_text("⚙️ AI Processing... কিছুক্ষণ অপেক্ষা করুন।")
     try:
-        from rembg import remove
+        # rembg মেমোরি বাঁচাতে ফাংশনের ভেতর ইম্পোর্ট করা হয়েছে
+        from rembg import remove as rm_bg
+        
         file = await update.message.photo[-1].get_file()
         img_bytes = await file.download_as_bytearray()
         input_img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
 
         if action == 'remove':
-            output = remove(input_img)
+            output = rm_bg(input_img)
         elif action == 'add':
             color = context.user_data.get('color', 'white')
-            no_bg = remove(input_img)
+            no_bg = rm_bg(input_img)
             output = Image.new("RGBA", no_bg.size, color)
             output.paste(no_bg, (0, 0), no_bg)
         elif action == 'get_subject_image':
-            subj_no_bg = remove(input_img)
+            subj_no_bg = rm_bg(input_img)
             bg_img = Image.open(io.BytesIO(context.user_data['stored_bg'])).convert("RGBA")
             subj_no_bg = subj_no_bg.resize(bg_img.size, Image.LANCZOS)
             bg_img.alpha_composite(subj_no_bg)
@@ -199,7 +200,10 @@ async def image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
 def main():
-    if not TOKEN: return
+    if not TOKEN:
+        print("Error: BOT_TOKEN not found!")
+        return
+        
     app_bot = Application.builder().token(TOKEN).build()
     
     app_bot.add_handler(CommandHandler("start", start))
